@@ -5,6 +5,7 @@ using Plots
 using ArgParse
 using TOML
 
+
 toml = Dict()
 last_was_option_name = false
 for arg in ARGS
