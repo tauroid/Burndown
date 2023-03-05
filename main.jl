@@ -1,9 +1,11 @@
+using Base: start_base_include
 using JSON
 using Dates
 using TimeZones
 using Plots
 using ArgParse
 using TOML
+using Base.Iterators
 
 
 toml = Dict()
@@ -70,6 +72,12 @@ s = ArgParseSettings(description = "Burndown chart generator. This script will a
     "--task-points-name"
         help = "Your cute name for task points (uncapitalised)"
         default = haskey(toml, "task-points-name") ? toml["task-points-name"] : "task points"
+    "--day-start-time"
+        help = "Start of the day in hh:mm:ss"
+        default = haskey(toml, "day-start-time") ? toml["day-start-time"] : "09:00:00"
+    "--day-end-time"
+        help = "End of the day in hh:mm:ss"
+        default = haskey(toml, "day-end-time") ? toml["day-end-time"] : "17:00:00"
 end
 
 parsed_args = parse_args(s)
@@ -78,17 +86,25 @@ task_points_capitalised = uppercase(parsed_args["task-points-name"][1]) * parsed
 
 pointsPluginId = "5cd476e1efce1d2e0cbe53a8"
 
+cardPoints = Dict()
+
 function computePoints(cardIds, cards)
     points = 0
     for cardId = cardIds
+        if haskey(cardPoints, cardId)
+            points += cardPoints[cardId]
+            continue
+        end
         card = cards[cardId]
         if card["closed"] continue end
         pointsPluginIndex = findfirst((plugin)->plugin["idPlugin"] == pointsPluginId, card["pluginData"])
         if isnothing(pointsPluginIndex)
             @warn "Card '" * card["name"] * "' has no points value"
+            cardPoints[cardId] = 0
         else
             pointsPlugin = card["pluginData"][pointsPluginIndex]
             pointsPluginData = JSON.parse(pointsPlugin["value"])
+            cardPoints[cardId] = pointsPluginData["size"]
             points += pointsPluginData["size"]
         end
     end
@@ -302,13 +318,75 @@ function makeGraphs()
         push!(notDoneTasksY, notDoneTasksY[end])
     end
 
-    storiesPlot = plot(doneStoriesX,notDoneStoriesY,ylabel="Story points",label="Incomplete story points",linecolor=:red,linewidth=linewidth,ticks=:native)
+    startTimeOfDay = Time(parsed_args["day-start-time"])
+    endTimeOfDay = Time(parsed_args["day-end-time"])
+    dayLength = endTimeOfDay - startTimeOfDay
 
-    plot!(storiesPlot, [startDate,endDate],[numAcceptedStories,0],label="Expected progress",linecolor=:black,linewidth=linewidth,ticks=:native)
+    weekdays = filter((d)->Dates.dayname(d) != "Saturday" && Dates.dayname(d) != "Sunday",
+                      floor(startDate, Dates.Day):Dates.Day(1):floor(endDate, Dates.Day))
 
-    tasksPlot = plot(doneTasksX,notDoneTasksY,ylabel=task_points_capitalised,label="Incomplete " * parsed_args["task-points-name"],linecolor=:blue,linewidth=linewidth,ticks=:native)
+    doneStoriesXWorkingHours = []
+    notDoneStoriesYWorkingHours = []
 
-    plot!(tasksPlot, [startDate,endDate],[numAcceptedTasks,0],label="Expected progress",linecolor=:black,linewidth=linewidth,ticks=:native)
+    doneTasksXWorkingHours = []
+    notDoneTasksYWorkingHours = []
+
+    lines = []
+
+    basehour = Hour(0)
+    remainingStoryActions = zip(doneStoriesX,notDoneStoriesY)
+    remainingTaskActions = zip(doneTasksX,notDoneTasksY)
+    for day = weekdays
+        dayStart = day + (startTimeOfDay - Time(0))
+        dayEnd = day + (endTimeOfDay - Time(0))
+
+        remainingStoryActions = dropwhile(((t,y),)->t < dayStart, remainingStoryActions)
+        newStoryActions = takewhile(((t,y),)->t <= dayEnd, remainingStoryActions)
+        doneStoriesXWorkingHours = vcat(doneStoriesXWorkingHours,map(((t,y),)->Dates.toms((Time(t)-startTimeOfDay)+basehour)/3600000, newStoryActions))
+        notDoneStoriesYWorkingHours = vcat(notDoneStoriesYWorkingHours,map(((t,y),)->y, newStoryActions))
+
+        remainingTaskActions = dropwhile(((t,y),)->t < dayStart, remainingTaskActions)
+        newTaskActions = takewhile(((t,y),)->t <= dayEnd, remainingTaskActions)
+        doneTasksXWorkingHours = vcat(doneTasksXWorkingHours,map(((t,y),)->Dates.toms((Time(t)-startTimeOfDay)+basehour)/3600000, newTaskActions))
+        notDoneTasksYWorkingHours = vcat(notDoneTasksYWorkingHours,map(((t,y),)->y, newTaskActions))
+
+        basehour += dayLength
+        push!(lines,Dates.toms(basehour)/3600000)
+    end
+
+    lines = lines[1:end-1]
+
+    storiesPlot = plot(doneStoriesXWorkingHours,
+                       notDoneStoriesYWorkingHours,
+                       xlabel="Working hours",
+                       ylabel="Story points",
+                       label="Incomplete story points",
+                       linecolor=:red,linewidth=linewidth,ticks=:native)
+
+    finalHour = Dates.toms(basehour-dayLength+(Time(endDate)-startTimeOfDay))/3600000
+
+    plot!(storiesPlot, [0,finalHour],[numAcceptedStories,0],
+          label="Expected progress",linecolor=:black,
+          linewidth=linewidth,ticks=:native)
+
+    for l in lines
+        plot!(storiesPlot, [l,l], [0,numAcceptedStories], linecolor=:grey, linestyle=:dash, primary=false)
+    end
+
+    tasksPlot = plot(doneTasksXWorkingHours,
+                     notDoneTasksYWorkingHours,
+                     xlabel="Working hours",
+                     ylabel=task_points_capitalised,
+                     label="Incomplete " * parsed_args["task-points-name"],
+                     linecolor=:blue,linewidth=linewidth,ticks=:native)
+
+    plot!(tasksPlot, [0,finalHour],[numAcceptedTasks,0],
+          label="Expected progress",linecolor=:black,
+          linewidth=linewidth,ticks=:native)
+
+    for l in lines
+        plot!(tasksPlot, [l,l], [0,numAcceptedTasks], linecolor=:grey, linestyle=:dash, primary=false)
+    end
 
     plot(storiesPlot, tasksPlot, size=(900,400))
 end
