@@ -320,7 +320,6 @@ function makeGraphs()
 
     startTimeOfDay = Time(parsed_args["day-start-time"])
     endTimeOfDay = Time(parsed_args["day-end-time"])
-    dayLength = endTimeOfDay - startTimeOfDay
 
     weekdays = filter((d)->Dates.dayname(d) != "Saturday" && Dates.dayname(d) != "Sunday",
                       floor(startDate, Dates.Day):Dates.Day(1):floor(endDate, Dates.Day))
@@ -336,18 +335,19 @@ function makeGraphs()
     basehour = Hour(0)
     remainingStoryActions = zip(doneStoriesX,notDoneStoriesY)
     remainingTaskActions = zip(doneTasksX,notDoneTasksY)
-    for day = weekdays
-        dayStart = day + (startTimeOfDay - Time(0))
-        dayEnd = day + (endTimeOfDay - Time(0))
+    for (i,day) = enumerate(weekdays)
+        dayStart = i == 1 ? startDate : day + (startTimeOfDay - Time(0))
+        dayEnd = i == length(weekdays) ? endDate : day + (endTimeOfDay - Time(0))
+        dayLength = dayEnd - dayStart
 
         remainingStoryActions = dropwhile(((t,y),)->t < dayStart, remainingStoryActions)
         newStoryActions = takewhile(((t,y),)->t <= dayEnd, remainingStoryActions)
-        doneStoriesXWorkingHours = vcat(doneStoriesXWorkingHours,map(((t,y),)->Dates.toms((Time(t)-startTimeOfDay)+basehour)/3600000, newStoryActions))
+        doneStoriesXWorkingHours = vcat(doneStoriesXWorkingHours,map(((t,y),)->Dates.toms((t-dayStart)+basehour)/3600000, newStoryActions))
         notDoneStoriesYWorkingHours = vcat(notDoneStoriesYWorkingHours,map(((t,y),)->y, newStoryActions))
 
         remainingTaskActions = dropwhile(((t,y),)->t < dayStart, remainingTaskActions)
         newTaskActions = takewhile(((t,y),)->t <= dayEnd, remainingTaskActions)
-        doneTasksXWorkingHours = vcat(doneTasksXWorkingHours,map(((t,y),)->Dates.toms((Time(t)-startTimeOfDay)+basehour)/3600000, newTaskActions))
+        doneTasksXWorkingHours = vcat(doneTasksXWorkingHours,map(((t,y),)->Dates.toms((t-dayStart)+basehour)/3600000, newTaskActions))
         notDoneTasksYWorkingHours = vcat(notDoneTasksYWorkingHours,map(((t,y),)->y, newTaskActions))
 
         basehour += dayLength
@@ -363,9 +363,7 @@ function makeGraphs()
                        label="Incomplete story points",
                        linecolor=:red,linewidth=linewidth,ticks=:native)
 
-    finalHour = Dates.toms(basehour-dayLength+(Time(endDate)-startTimeOfDay))/3600000
-
-    plot!(storiesPlot, [0,finalHour],[numAcceptedStories,0],
+    plot!(storiesPlot, [0,Dates.toms(basehour)/3600000],[numAcceptedStories,0],
           label="Expected progress",linecolor=:black,
           linewidth=linewidth,ticks=:native)
 
@@ -380,7 +378,7 @@ function makeGraphs()
                      label="Incomplete " * parsed_args["task-points-name"],
                      linecolor=:blue,linewidth=linewidth,ticks=:native)
 
-    plot!(tasksPlot, [0,finalHour],[numAcceptedTasks,0],
+    plot!(tasksPlot, [0,Dates.toms(basehour)/3600000],[numAcceptedTasks,0],
           label="Expected progress",linecolor=:black,
           linewidth=linewidth,ticks=:native)
 
