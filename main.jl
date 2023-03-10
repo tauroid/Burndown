@@ -78,6 +78,12 @@ s = ArgParseSettings(description = "Burndown chart generator. This script will a
     "--day-end-time"
         help = "End of the day in hh:mm:ss"
         default = haskey(toml, "day-end-time") ? toml["day-end-time"] : "17:00:00"
+    "--lunch-start-time"
+        help = "Start of lunch in hh:mm:ss"
+        default = haskey(toml, "lunch-start-time") ? toml["lunch-start-time"] : nothing
+    "--lunch-end-time"
+        help = "End of lunch in hh:mm:ss"
+        default = haskey(toml, "lunch-end-time") ? toml["lunch-end-time"] : nothing
 end
 
 parsed_args = parse_args(s)
@@ -320,6 +326,8 @@ function makeGraphs()
 
     startTimeOfDay = Time(parsed_args["day-start-time"])
     endTimeOfDay = Time(parsed_args["day-end-time"])
+    lunchStartTimeOfDay = Time(parsed_args["lunch-start-time"])
+    lunchEndTimeOfDay = Time(parsed_args["lunch-end-time"])
 
     weekdays = filter((d)->Dates.dayname(d) != "Saturday" && Dates.dayname(d) != "Sunday",
                       floor(startDate, Dates.Day):Dates.Day(1):floor(endDate, Dates.Day))
@@ -331,6 +339,7 @@ function makeGraphs()
     notDoneTasksYWorkingHours = []
 
     lines = []
+    lunches = []
 
     basehour = Hour(0)
     remainingStoryActions = zip(doneStoriesX,notDoneStoriesY)
@@ -339,6 +348,21 @@ function makeGraphs()
         dayStart = i == 1 ? startDate : day + (startTimeOfDay - Time(0))
         dayEnd = i == length(weekdays) ? endDate : day + (endTimeOfDay - Time(0))
         dayLength = dayEnd - dayStart
+
+        lunchStart = lunchStartTimeOfDay
+        lunchEnd = lunchEndTimeOfDay
+
+        if Time(dayStart) > lunchEndTimeOfDay || Time(dayEnd) < lunchStartTimeOfDay
+            lunchStart = nothing
+            lunchEnd = nothing
+        else
+            if Time(dayStart) > lunchStartTimeOfDay
+                lunchStart = Time(dayStart)
+            end
+            if Time(dayEnd) < lunchEndTimeOfDay
+                lunchEnd = Time(dayEnd)
+            end
+        end
 
         remainingStoryActions = dropwhile(((t,y),)->t < dayStart, remainingStoryActions)
         newStoryActions = takewhile(((t,y),)->t <= dayEnd, remainingStoryActions)
@@ -350,37 +374,52 @@ function makeGraphs()
         doneTasksXWorkingHours = vcat(doneTasksXWorkingHours,map(((t,y),)->Dates.toms((t-dayStart)+basehour)/3600000, newTaskActions))
         notDoneTasksYWorkingHours = vcat(notDoneTasksYWorkingHours,map(((t,y),)->y, newTaskActions))
 
+        if !isnothing(lunchStart)
+            push!(lunches,
+                  Dates.toms.([(lunchStart-Time(dayStart))+basehour,
+                               (lunchEnd-Time(dayStart))+basehour])./3600000)
+        end
         basehour += dayLength
         push!(lines,Dates.toms(basehour)/3600000)
     end
 
     lines = lines[1:end-1]
 
-    storiesPlot = plot(doneStoriesXWorkingHours,
+    storiesPlot = plot([0,Dates.toms(basehour)/3600000],[numAcceptedStories,0],
+          label="Expected progress",linecolor=:black,
+          linewidth=linewidth,ticks=:native)
+
+    for lunch in lunches
+        plot!(storiesPlot, lunch, [numAcceptedStories,numAcceptedStories],
+              fillrange= 0, fillalpha = 0.2, fillcolor = :grey, linealpha = 0, primary=false)
+    end
+
+    plot!(storiesPlot, doneStoriesXWorkingHours,
                        notDoneStoriesYWorkingHours,
                        xlabel="Working hours",
                        ylabel="Story points",
                        label="Incomplete story points",
                        linecolor=:red,linewidth=linewidth,ticks=:native)
 
-    plot!(storiesPlot, [0,Dates.toms(basehour)/3600000],[numAcceptedStories,0],
-          label="Expected progress",linecolor=:black,
-          linewidth=linewidth,ticks=:native)
-
     for l in lines
         plot!(storiesPlot, [l,l], [0,numAcceptedStories], linecolor=:grey, linestyle=:dash, primary=false)
     end
 
-    tasksPlot = plot(doneTasksXWorkingHours,
+    tasksPlot = plot([0,Dates.toms(basehour)/3600000],[numAcceptedTasks,0],
+          label="Expected progress",linecolor=:black,
+          linewidth=linewidth,ticks=:native)
+
+    for lunch in lunches
+        plot!(tasksPlot, lunch, [numAcceptedTasks,numAcceptedTasks],
+              fillrange= 0, fillalpha = 0.2, fillcolor = :grey, linealpha = 0, primary=false)
+    end
+
+    plot!(tasksPlot, doneTasksXWorkingHours,
                      notDoneTasksYWorkingHours,
                      xlabel="Working hours",
                      ylabel=task_points_capitalised,
                      label="Incomplete " * parsed_args["task-points-name"],
                      linecolor=:blue,linewidth=linewidth,ticks=:native)
-
-    plot!(tasksPlot, [0,Dates.toms(basehour)/3600000],[numAcceptedTasks,0],
-          label="Expected progress",linecolor=:black,
-          linewidth=linewidth,ticks=:native)
 
     for l in lines
         plot!(tasksPlot, [l,l], [0,numAcceptedTasks], linecolor=:grey, linestyle=:dash, primary=false)
