@@ -127,8 +127,8 @@ function makeGraphs()
 
     data = JSON.parse(read(boardData,String))
 
-    startDate = DateTime(parsed_args["start-date"])
-    endDate = DateTime(parsed_args["end-date"])
+    startDate = ZonedDateTime(parsed_args["start-date"])
+    endDate = ZonedDateTime(parsed_args["end-date"])
 
     actions = reverse(data["actions"])
 
@@ -161,7 +161,7 @@ function makeGraphs()
     doneTasksListName = parsed_args["done-tasks-list"]
 
     for action = actions
-        actionDate = TimeZones.DateTime(ZonedDateTime(action["date"]))
+        actionDate = ZonedDateTime(action["date"])
         if actionDate < startDate || actionDate > endDate
             continue
         end
@@ -316,7 +316,7 @@ function makeGraphs()
     notDoneStoriesY = numAcceptedStories .- doneStoriesY
     notDoneTasksY = numAcceptedTasks .- doneTasksY
 
-    currentTime = now()
+    currentTime = now(localzone())
     if currentTime < endDate
         push!(doneStoriesX, currentTime)
         push!(notDoneStoriesY, notDoneStoriesY[end])
