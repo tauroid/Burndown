@@ -3,7 +3,11 @@ Burndown chart generator
 
 Generates a [Plotly](https://plotly.com/javascript/) burndown 
 chart for your Trello sprint. Relies on the [Card Size powerup](https://trello.com/power-ups/5cd476e1efce1d2e0cbe53a8/card-size-by-screenful) 
-(every card needs a size!). Is slow because it's written in Julia.
+(every card needs a size!). 
+
+Operates on the JSON file trello will let you export from a board.
+
+Is slow because it's written in Julia.
 
 ``` sh
 $ julia --project=.
